@@ -14,8 +14,14 @@ import (
 var GithubAPIBase = "https://api.github.com"
 
 func createGithubIssue(env Environment, issueRequest *IssueRequest, channel string) IssueResponse {
-
-	found, issueResponse := parseBodyAndFindExisting(env, issueRequest.Body)
+	versionMatch := parseBodyAndCheckVersion(env, issueRequest.Body)
+	if !versionMatch {
+		log.Printf("Version not supported for request body %v", issueRequest.Body)
+		return IssueResponse{
+			IsUnofficial: true,
+		}
+	}
+	found, issueResponse := parseBodyAndFindExisting(issueRequest.Body)
 	if found {
 		log.Printf("Found existing issue at github %v", issueResponse.Body)
 		return issueResponse
@@ -28,7 +34,17 @@ func createGithubIssue(env Environment, issueRequest *IssueRequest, channel stri
 	return issueResponse
 }
 
-func parseBodyAndFindExisting(env Environment, requestBody string) (bool, IssueResponse) {
+func parseBodyAndCheckVersion(env Environment, requestBody string) bool {
+	match := regexpVersion.FindStringSubmatch(requestBody)
+	if len(match) == 0 {
+		log.Printf("Request body doesn't have a version %v. Proceeding to create issue", requestBody)
+		return true
+	}
+	version := match[1]
+	return strings.Contains(env.supportedVersions, version)
+}
+
+func parseBodyAndFindExisting(requestBody string) (bool, IssueResponse) {
 	match := regexpCrash.FindStringSubmatch(requestBody)
 	if len(match) == 0 {
 		log.Printf("Request body doesn't have a crash %v. Proceeding to create issue", requestBody)
@@ -36,14 +52,14 @@ func parseBodyAndFindExisting(env Environment, requestBody string) (bool, IssueR
 	}
 	requestBodyCrash := match[1]
 	log.Printf("Extracted crash from request body, proceed to find all issues %v", requestBodyCrash)
-	findAllIssueRequest := getAllIssuesRequest(env, 1)
+	findAllIssueRequest := getAllIssuesRequest(1)
 	body := processRequest(findAllIssueRequest)
 	var findAllIssueResponseList []IssueResponse
 	err := json.NewDecoder(bytes.NewReader(body)).Decode(&findAllIssueResponseList)
 	fatal(err)
 	found, issueResponse := parseIssueResponseListForBody(findAllIssueResponseList, requestBodyCrash)
 	for i := 2; !found && len(findAllIssueResponseList) != 0; i++ {
-		findAllIssueRequest = getAllIssuesRequest(env, i)
+		findAllIssueRequest = getAllIssuesRequest(i)
 		body = processRequest(findAllIssueRequest)
 		err = json.NewDecoder(bytes.NewReader(body)).Decode(&findAllIssueResponseList)
 		fatal(err)
@@ -59,6 +75,13 @@ func parseIssueResponseListForBody(issueResponseList []IssueResponse, requestCra
 	}
 	var issueResponse IssueResponse
 	requestCrashFirst, requestCrashSecond := getCrashLines(requestCrashBody)
+	log.Printf("Found request crash first line %v, second line %v", requestCrashFirst, requestCrashSecond)
+	if len(requestCrashSecond) == 0 {
+		log.Printf("Didn't find package name com.amaze.filemanager is stacktrack, return")
+		return true, IssueResponse{
+			IsUnofficial: true,
+		}
+	}
 	var found bool = false
 	for _, element := range issueResponseList {
 		match := regexpCrash.FindStringSubmatch(element.Body)
@@ -80,15 +103,19 @@ func getCrashLines(crashBody string) (string, string) {
 	var firstLine string
 	var secondLine string
 	for _, line := range strings.Split(crashBody, "\n") {
-		if len(line) != 0 && len(firstLine) == 0 && line != "```" {
-			firstLine = line
+		if len(line) != 0 && len(firstLine) == 0 && line != "```" &&
+			!strings.Contains(line, "{") && !strings.Contains(line, "}") && !strings.Contains(line, "$") {
+			firstLine = strings.ReplaceAll(line, "at ", "")
 		}
 		if len(line) != 0 && len(secondLine) == 0 && line != "```" && strings.Contains(line, "com.amaze.filemanager") {
-			secondLine = line
+			secondLine = strings.ReplaceAll(line, "at ", "")
+		}
+		if len(firstLine) != 0 && len(secondLine) != 0 {
+			break
 		}
 	}
 	log.Printf("Found lines for crash body, first %v, second %v", firstLine, secondLine)
-	return firstLine, secondLine
+	return strings.TrimSpace(firstLine), strings.TrimSpace(secondLine)
 }
 
 func getCreateIssueRequest(env Environment, issueRequest *IssueRequest, channel string) *http.Request {
@@ -101,7 +128,7 @@ func getCreateIssueRequest(env Environment, issueRequest *IssueRequest, channel 
 	return request
 }
 
-func getAllIssuesRequest(env Environment, page int) *http.Request {
+func getAllIssuesRequest(page int) *http.Request {
 	log.Printf("Create request to find all issues for url %v page %v", GithubIssueURI, page)
 	request, err := http.NewRequest("GET", fmt.Sprintf(GithubIssueURI+"&page=%v", page), nil)
 	fatal(err)

@@ -7,27 +7,28 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"time"
 )
 
 // Environment values, set these in your deployment
 type Environment struct {
-	repoOwner     string // add GITHUB_REPO_OWNER in deployment variables
-	repoName      string // add GITHUB_REPO_NAME in deployment variables
-	apiToken      string // add API_TOKEN in deployment variables
-	issueAPIToken string // add ISSUE_API_TOKEN in deployment variables
-	issueURI      string // add ISSUE_URI in deployment variables
+	repoOwner         string // add GITHUB_REPO_OWNER in deployment variables
+	repoName          string // add GITHUB_REPO_NAME in deployment variables
+	apiToken          string // add API_TOKEN in deployment variables
+	issueAPIToken     string // add ISSUE_API_TOKEN in deployment variables
+	issueURI          string // add ISSUE_URI in deployment variables
+	supportedVersions string // add SUPPORTED_VERSIONS in deployment variables
 }
 
 // IssueResponse created by github api
 type IssueResponse struct {
-	Number  int    `json:"number,omitempty"`
-	URL     string `json:"html_url,omitempty"`
-	Body    string `json:"body,omitempty"`
-	Message string `json:"message,omitempty"`
-	Errors  []struct {
+	Number       int    `json:"number,omitempty"`
+	URL          string `json:"html_url,omitempty"`
+	Body         string `json:"body,omitempty"`
+	Message      string `json:"message,omitempty"`
+	IsUnofficial bool   `json:"isUnofficial,omitempty"`
+	Errors       []struct {
 		Value    interface{} `json:"value"`
 		Resource string      `json:"resource"`
 		Field    string      `json:"field"`
@@ -46,20 +47,29 @@ var (
 	httpClient  = &http.Client{
 		Timeout: time.Second * 10,
 	}
-	regexpCrash *regexp.Regexp
+	regexpCrash   *regexp.Regexp
+	regexpVersion *regexp.Regexp
 
 	// GithubIssueURI URL for creating GitHub issue
 	GithubIssueURI string
 )
 
 func init() {
-	environment.repoOwner = os.Getenv("GITHUB_REPO_OWNER")
-	environment.repoName = os.Getenv("GITHUB_REPO_NAME")
-	environment.apiToken = os.Getenv("API_TOKEN")
-	environment.issueAPIToken = os.Getenv("ISSUE_API_TOKEN")
-	environment.issueURI = os.Getenv("ISSUE_URI")
+	// environment.repoOwner = os.Getenv("GITHUB_REPO_OWNER")
+	// environment.repoName = os.Getenv("GITHUB_REPO_NAME")
+	// environment.apiToken = os.Getenv("API_TOKEN")
+	// environment.issueAPIToken = os.Getenv("ISSUE_API_TOKEN")
+	// environment.issueURI = os.Getenv("ISSUE_URI")
+	// environment.supportedVersions = os.Getenv("SUPPORTED_VERSIONS")
+	environment.repoOwner = "TeamAmaze"
+	environment.repoName = "AmazeFileManager"
+	environment.apiToken = "token"
+	environment.issueAPIToken = "token"
+	environment.issueURI = "http://google.com"
+	environment.supportedVersions = "3.5.2,3.5.3"
 	GithubIssueURI = fmt.Sprintf(GithubAPIBase+"/repos/%v/%v/issues?state=all&per_page=100", environment.repoOwner, environment.repoName)
 	regexpCrash = regexp.MustCompile("<p>((.|\n)*)</details>")
+	regexpVersion = regexp.MustCompile("\\* __Version:__ ((.)*)\n")
 }
 
 // CreateIssue main function responsible for creating GitHub issue
